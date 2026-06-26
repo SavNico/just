@@ -4,7 +4,7 @@
 
 Built on top of Charm's **Bubble Tea** and **Lipgloss**, `just` offers a modern, visual CLI interface that adapts dynamically to your terminal size.
 
-![just screenshot](screenshot.png)
+![Screenshot](assets/screenshot.png)
 
 ## Features
 
