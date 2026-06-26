@@ -1,0 +1,13 @@
+# Binaries
+just
+dist/
+
+# IDEs
+.idea/
+.vscode/
+
+# OS files
+.DS_Store
+DS_Store
+
+build_releases.sh
