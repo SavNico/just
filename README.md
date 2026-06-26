@@ -97,6 +97,14 @@ Example file format:
 
 ---
 
+## Support / Sponsor
+
+If you find `just` helpful and want to support its development, you can sponsor the project via:
+
+- [Mercado Pago](https://link.mercadopago.com.ar/savnicogithub)
+
+---
+
 ## License
 
 This project is licensed under the **MIT License**. See the LICENSE file for details.
