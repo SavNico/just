@@ -353,7 +353,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.saveLocCursor--
 				}
 			case "down", "j":
-				if m.saveLocCursor < 1 {
+				if m.saveLocCursor < 2 {
 					m.saveLocCursor++
 				}
 			case "enter":
@@ -371,12 +371,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.textInput.Prompt = lipgloss.NewStyle().Foreground(cyan).Bold(true).Render("Command ❯ ")
 					m.textInput.Focus()
 					return m, textinput.Blink
-				} else {
+				} else if m.saveLocCursor == 1 {
 					m.selectedLocType = "manual"
 					m.state = stateAddPathInput
 					m.textInput.SetValue("")
 					m.textInput.Placeholder = "e.g. ~/Desktop or /path/to/dir"
 					m.textInput.Prompt = lipgloss.NewStyle().Foreground(cyan).Bold(true).Render("Directory Path ❯ ")
+					m.textInput.Focus()
+					return m, textinput.Blink
+				} else {
+					m.selectedLocType = "none"
+					m.savePath = ""
+					m.state = stateAddCommandInput
+					m.textInput.SetValue("")
+					m.textInput.Placeholder = "e.g. docker-compose up -d"
+					m.textInput.Prompt = lipgloss.NewStyle().Foreground(cyan).Bold(true).Render("Command ❯ ")
 					m.textInput.Focus()
 					return m, textinput.Blink
 				}
@@ -589,7 +598,7 @@ func (m model) View() string {
 			lines = append(lines, sectionHeaderStyle.Render("ADD NEW COMMAND: EXECUTION LOCATION"))
 			lines = append(lines, "Where do you want to run this command context from?")
 
-			options := []string{"Current Directory (pwd)", "Write Manually (specify path)"}
+			options := []string{"Current Directory (pwd)", "Write Manually (specify path)", "No Path (runs where 'just' is executed)"}
 			for i, opt := range options {
 				if i == m.saveLocCursor {
 					lines = append(lines, lipgloss.NewStyle().Foreground(cyan).Bold(true).Render(fmt.Sprintf("  ❯ %s", opt)))
@@ -938,7 +947,11 @@ func formatCommandsTable(selectedIdx int, termWidth int) (string, error) {
 		titleLines := wrapText(cmd.Title, wTitle)
 		cmdLines := wrapText(cmd.Command, wCmd)
 		descLines := wrapText(cmd.Description, wDesc)
-		dirLines := wrapText(cmd.Directory, wDir)
+		dirVal := cmd.Directory
+		if dirVal == "" {
+			dirVal = "-"
+		}
+		dirLines := wrapText(dirVal, wDir)
 
 		maxLines := len(titleLines)
 		if len(cmdLines) > maxLines {
@@ -1080,6 +1093,24 @@ func executeCommand(title string, extraArgs []string) {
 	fullCmd := targetCmd.Command
 	if len(extraArgs) > 0 {
 		fullCmd += " " + strings.Join(extraArgs, " ")
+	}
+
+	// Check if we should delegate execution to the parent shell via a temp file
+	runFile := os.Getenv("JUST_RUN_FILE")
+	if runFile != "" {
+		var exportCmd string
+		if targetCmd.Directory != "" {
+			escapedDir := strings.ReplaceAll(targetCmd.Directory, `'`, `'\''`)
+			exportCmd = fmt.Sprintf("(cd '%s' && %s)", escapedDir, fullCmd)
+		} else {
+			exportCmd = fullCmd
+		}
+		err := os.WriteFile(runFile, []byte(exportCmd), 0600)
+		if err != nil {
+			fmt.Printf("Error writing command to run file: %v\n", err)
+			os.Exit(1)
+		}
+		os.Exit(0)
 	}
 
 	// Execute via shell
