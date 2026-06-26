@@ -84,17 +84,17 @@ var (
 			Foreground(white).
 			Background(purple).
 			Padding(0, 1).
-			MarginBottom(0)
+			MarginBottom(1)
 
 	subtitleStyle = lipgloss.NewStyle().
 			Foreground(gray).
 			Italic(true).
-			MarginBottom(0)
+			MarginBottom(1)
 
 	sectionHeaderStyle = lipgloss.NewStyle().
 				Bold(true).
 				Foreground(purple).
-				MarginTop(0).
+				MarginTop(1).
 				MarginBottom(0)
 
 	cmdKeyStyle = lipgloss.NewStyle().
@@ -113,7 +113,7 @@ var (
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(purple).
 			Padding(0, 2).
-			MarginTop(0).
+			MarginTop(1).
 			MarginBottom(0)
 
 	footerStyle = lipgloss.NewStyle().
@@ -731,7 +731,7 @@ func getHelpContent(w int) string {
 
 	// Banner/Header
 	title := titleStyle.Render("JUST")
-	subtitle := subtitleStyle.Copy().Width(availWidth).Render("A premium TUI-based command container & runner.")
+	subtitle := subtitleStyle.Copy().Width(availWidth).Render("A lightweight TUI-based command container & runner.")
 
 	// Usage section
 	usageHeader := sectionHeaderStyle.Render("USAGE")

@@ -1,6 +1,6 @@
 # just
 
-`just` is a premium, lightweight TUI-based command container and runner written in Go. It allows you to organize, store, and execute your daily command-line snippets and scripts from anywhere with clean aliases, without cluttering your system or configuration files.
+`just` is a lightweight TUI-based command container and runner written in Go. It allows you to organize, store, and execute your daily command-line snippets and scripts from anywhere with clean aliases, without cluttering your system or configuration files.
 
 Built on top of Charm's **Bubble Tea** and **Lipgloss**, `just` offers a modern, visual CLI interface that adapts dynamically to your terminal size.
 
