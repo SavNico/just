@@ -15,7 +15,7 @@ import (
 	"golang.org/x/term"
 )
 
-const version = "0.1.1"
+const version = "0.1.2"
 
 type CommandInfo struct {
 	Title       string `json:"title"`
@@ -166,7 +166,7 @@ type model struct {
 func initialModel() model {
 	ti := textinput.New()
 	ti.Focus()
-	ti.CharLimit = 156
+	ti.CharLimit = 312
 	ti.Width = 60
 
 	return model{
