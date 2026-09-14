@@ -28,8 +28,9 @@ case "${ARCH}" in
 esac
 
 echo "Detecting latest release..."
-# Get latest release tag from GitHub API
-LATEST_TAG=$(curl -s "https://api.github.com/repos/${OWNER}/${REPO}/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+# Get latest release data from GitHub API
+RELEASE_JSON=$(curl -s "https://api.github.com/repos/${OWNER}/${REPO}/releases/latest")
+LATEST_TAG=$(echo "${RELEASE_JSON}" | grep '"tag_name":' | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/')
 
 if [ -z "${LATEST_TAG}" ]; then
     echo "Error: Could not retrieve latest release tag."
@@ -38,13 +39,24 @@ fi
 
 echo "Latest release is ${LATEST_TAG}"
 
-# Download URL
-TARBALL="just_${LATEST_TAG}_${OS_NAME}_${ARCH_NAME}.tar.gz"
-DOWNLOAD_URL="https://github.com/SavNico/just/releases/download/${LATEST_TAG}/${TARBALL}"
+# Dynamically locate asset URL matching OS and Architecture
+DOWNLOAD_URL=$(echo "${RELEASE_JSON}" | grep "browser_download_url" | grep -i "${OS_NAME}" | grep -i "${ARCH_NAME}" | head -n 1 | cut -d '"' -f 4)
+
+if [ -z "${DOWNLOAD_URL}" ]; then
+    # Fallback if asset pattern differs
+    TARBALL="just_${LATEST_TAG}_${OS_NAME}_${ARCH_NAME}.tar.gz"
+    DOWNLOAD_URL="https://github.com/SavNico/just/releases/download/${LATEST_TAG}/${TARBALL}"
+else
+    TARBALL=$(basename "${DOWNLOAD_URL}")
+fi
 
 echo "Downloading from ${DOWNLOAD_URL}..."
 TMP_DIR=$(mktemp -d)
-curl -sL "${DOWNLOAD_URL}" -o "${TMP_DIR}/${TARBALL}"
+if ! curl -sSLf "${DOWNLOAD_URL}" -o "${TMP_DIR}/${TARBALL}"; then
+    echo "Error: Failed to download release asset from ${DOWNLOAD_URL}."
+    rm -rf "${TMP_DIR}"
+    exit 1
+fi
 
 echo "Extracting..."
 tar -xzf "${TMP_DIR}/${TARBALL}" -C "${TMP_DIR}"
@@ -62,4 +74,4 @@ chmod +x "${INSTALL_DIR}/just"
 rm -rf "${TMP_DIR}"
 
 echo "Success! 'just' has been installed to ${INSTALL_DIR}/just"
-just -v
+"${INSTALL_DIR}/just" -v
