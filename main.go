@@ -104,7 +104,7 @@ var (
 	optKeyStyle = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(cyan).
-			Width(16)
+			Width(22)
 
 	valStyle = lipgloss.NewStyle().
 			Foreground(white)
@@ -127,6 +127,7 @@ type listMode int
 const (
 	modeList listMode = iota
 	modeDelete
+	modeEdit
 )
 
 type sessionState int
@@ -139,6 +140,10 @@ const (
 	stateAddCommandInput
 	stateAddTitleInput
 	stateAddDescInput
+	stateEditDirectoryInput
+	stateEditCommandInput
+	stateEditTitleInput
+	stateEditDescInput
 )
 
 type model struct {
@@ -159,6 +164,15 @@ type model struct {
 	newTitle        string
 	newDesc         string
 
+	// Edit form data
+	fromCLI              bool
+	editSaved            bool
+	editingOriginalTitle string
+	editDirectory        string
+	editCommand          string
+	editTitle            string
+	editDesc             string
+
 	textInput textinput.Model
 	err       error
 }
@@ -172,7 +186,7 @@ func initialModel() model {
 	return model{
 		state:        stateMenu,
 		listMode:     modeList,
-		choices:      []string{"Add Command", "List Commands", "Delete Command", "Exit"},
+		choices:      []string{"Add Command", "Edit Command", "List Commands", "Delete Command", "Exit"},
 		cursor:       0,
 		listCursor:   0,
 		commands:     []CommandInfo{},
@@ -187,6 +201,21 @@ func (m model) Init() tea.Cmd {
 	return textinput.Blink
 }
 
+func (m model) startEditing(cmd CommandInfo) (model, tea.Cmd) {
+	m.editingOriginalTitle = cmd.Title
+	m.editDirectory = cmd.Directory
+	m.editCommand = cmd.Command
+	m.editTitle = cmd.Title
+	m.editDesc = cmd.Description
+
+	m.state = stateEditDirectoryInput
+	m.textInput.SetValue(cmd.Directory)
+	m.textInput.Placeholder = "e.g. ~/Desktop or /path/to/dir (leave empty for none)"
+	m.textInput.Prompt = lipgloss.NewStyle().Foreground(cyan).Bold(true).Render("Directory Path ❯ ")
+	m.textInput.Focus()
+	return m, textinput.Blink
+}
+
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 
@@ -195,6 +224,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg, ok := msg.(tea.KeyMsg); ok {
 			if msg.Type == tea.KeyEsc {
 				m.err = nil
+				if m.fromCLI {
+					return m, tea.Quit
+				}
 				m.state = stateMenu
 				return m, nil
 			}
@@ -233,13 +265,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.state = stateAddSaveLocation
 					m.saveLocCursor = 0
 					return m, nil
-				case "List Commands", "Delete Command":
+				case "List Commands", "Delete Command", "Edit Command":
 					m.state = stateList
 					m.listCursor = 0
 					if selected == "List Commands" {
 						m.listMode = modeList
-					} else {
+					} else if selected == "Delete Command" {
 						m.listMode = modeDelete
+					} else {
+						m.listMode = modeEdit
 					}
 
 					globalPath, err := getGlobalConfigPath()
@@ -305,6 +339,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 								m.err = err
 							}
 						}
+					case modeEdit:
+						return m.startEditing(m.commands[m.listCursor])
+					}
+				}
+			case "e":
+				if len(m.commands) > 0 && m.listCursor >= 0 && m.listCursor < len(m.commands) {
+					if m.listMode == modeList || m.listMode == modeEdit {
+						return m.startEditing(m.commands[m.listCursor])
 					}
 				}
 			case "d", "x":
@@ -540,6 +582,172 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.textInput, cmd = m.textInput.Update(msg)
+
+	case stateEditDirectoryInput:
+		switch msg := msg.(type) {
+		case tea.KeyMsg:
+			switch msg.Type {
+			case tea.KeyEsc:
+				if m.fromCLI {
+					return m, tea.Quit
+				}
+				m.state = stateList
+				return m, nil
+			case tea.KeyEnter:
+				val := strings.TrimSpace(m.textInput.Value())
+				if val != "" {
+					val = expandTilde(val)
+					absVal, err := filepath.Abs(val)
+					if err != nil {
+						m.err = err
+						return m, nil
+					}
+					m.editDirectory = absVal
+				} else {
+					m.editDirectory = ""
+				}
+				m.state = stateEditCommandInput
+				m.textInput.SetValue(m.editCommand)
+				m.textInput.Placeholder = "e.g. docker-compose up -d"
+				m.textInput.Prompt = lipgloss.NewStyle().Foreground(cyan).Bold(true).Render("Command ❯ ")
+				m.textInput.Focus()
+				return m, textinput.Blink
+			}
+		}
+		m.textInput, cmd = m.textInput.Update(msg)
+
+	case stateEditCommandInput:
+		switch msg := msg.(type) {
+		case tea.KeyMsg:
+			switch msg.Type {
+			case tea.KeyEsc:
+				m.state = stateEditDirectoryInput
+				m.textInput.SetValue(m.editDirectory)
+				m.textInput.Placeholder = "e.g. ~/Desktop or /path/to/dir (leave empty for none)"
+				m.textInput.Prompt = lipgloss.NewStyle().Foreground(cyan).Bold(true).Render("Directory Path ❯ ")
+				return m, nil
+			case tea.KeyEnter:
+				val := strings.TrimSpace(m.textInput.Value())
+				if val != "" {
+					m.editCommand = val
+					m.state = stateEditTitleInput
+					m.textInput.SetValue(m.editTitle)
+					m.textInput.Placeholder = "e.g. deploy (no spaces allowed)"
+					m.textInput.Prompt = lipgloss.NewStyle().Foreground(cyan).Bold(true).Render("Alias ❯ ")
+					m.textInput.Focus()
+					return m, textinput.Blink
+				}
+			}
+		}
+		m.textInput, cmd = m.textInput.Update(msg)
+
+	case stateEditTitleInput:
+		switch msg := msg.(type) {
+		case tea.KeyMsg:
+			if msg.String() == " " {
+				return m, nil
+			}
+			switch msg.Type {
+			case tea.KeyEsc:
+				m.state = stateEditCommandInput
+				m.textInput.SetValue(m.editCommand)
+				m.textInput.Placeholder = "e.g. docker-compose up -d"
+				m.textInput.Prompt = lipgloss.NewStyle().Foreground(cyan).Bold(true).Render("Command ❯ ")
+				return m, nil
+			case tea.KeyEnter:
+				val := strings.TrimSpace(m.textInput.Value())
+				if strings.Contains(val, " ") || val == "" {
+					return m, nil
+				}
+				if val != m.editingOriginalTitle {
+					for _, cmd := range m.commands {
+						if cmd.Title == val {
+							m.err = fmt.Errorf("alias '%s' is already in use by another command", val)
+							return m, nil
+						}
+					}
+				}
+				m.editTitle = val
+				m.state = stateEditDescInput
+				m.textInput.SetValue(m.editDesc)
+				m.textInput.Placeholder = "e.g. Starts deployment of containers"
+				m.textInput.Prompt = lipgloss.NewStyle().Foreground(cyan).Bold(true).Render("Description ❯ ")
+				m.textInput.Focus()
+				return m, textinput.Blink
+			}
+		}
+		m.textInput, cmd = m.textInput.Update(msg)
+
+	case stateEditDescInput:
+		switch msg := msg.(type) {
+		case tea.KeyMsg:
+			switch msg.Type {
+			case tea.KeyEsc:
+				m.state = stateEditTitleInput
+				m.textInput.SetValue(m.editTitle)
+				m.textInput.Placeholder = "e.g. deploy (no spaces allowed)"
+				m.textInput.Prompt = lipgloss.NewStyle().Foreground(cyan).Bold(true).Render("Alias ❯ ")
+				return m, nil
+			case tea.KeyEnter:
+				val := strings.TrimSpace(m.textInput.Value())
+				m.editDesc = val
+
+				globalPath, err := getGlobalConfigPath()
+				if err != nil {
+					m.err = err
+					return m, nil
+				}
+
+				cfg, err := loadConfig(globalPath)
+				if err != nil {
+					m.err = err
+					return m, nil
+				}
+
+				found := false
+				for i, cmd := range cfg.Commands {
+					if cmd.Title == m.editingOriginalTitle {
+						cfg.Commands[i] = CommandInfo{
+							Title:       m.editTitle,
+							Command:     m.editCommand,
+							Description: m.editDesc,
+							Directory:   m.editDirectory,
+						}
+						found = true
+						break
+					}
+				}
+				if !found {
+					cfg.Commands = append(cfg.Commands, CommandInfo{
+						Title:       m.editTitle,
+						Command:     m.editCommand,
+						Description: m.editDesc,
+						Directory:   m.editDirectory,
+					})
+				}
+
+				err = saveConfig(globalPath, cfg)
+				if err != nil {
+					m.err = err
+					return m, nil
+				}
+
+				m.commands = cfg.Commands
+				sort.Slice(m.commands, func(i, j int) bool {
+					return m.commands[i].Title < m.commands[j].Title
+				})
+
+				m.editSaved = true
+
+				if m.fromCLI {
+					return m, tea.Quit
+				}
+
+				m.state = stateMenu
+				return m, nil
+			}
+		}
+		m.textInput, cmd = m.textInput.Update(msg)
 	}
 
 	return m, cmd
@@ -554,7 +762,11 @@ func (m model) View() string {
 
 	if m.err != nil {
 		content = lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Bold(true).Width(m.width - 4).Render(fmt.Sprintf("Error: %v", m.err))
-		footer = footerStyleCopy.Render("Press Esc to return to menu.")
+		if m.fromCLI {
+			footer = footerStyleCopy.Render("Press Esc to exit.")
+		} else {
+			footer = footerStyleCopy.Render("Press Esc to return to menu.")
+		}
 	} else {
 		switch m.state {
 		case stateMenu:
@@ -578,8 +790,10 @@ func (m model) View() string {
 				var header string
 				if m.listMode == modeList {
 					header = sectionHeaderStyle.Render("REGISTERED COMMANDS (Select command to run):")
-				} else {
+				} else if m.listMode == modeDelete {
 					header = sectionHeaderStyle.Render("DELETE COMMAND (Select command to delete):")
+				} else {
+					header = sectionHeaderStyle.Render("EDIT COMMAND (Select command to edit):")
 				}
 				content = lipgloss.JoinVertical(
 					lipgloss.Left,
@@ -588,9 +802,11 @@ func (m model) View() string {
 				)
 			}
 			if m.listMode == modeList {
-				footer = footerStyleCopy.Render("Use ↑/↓ or j/k to navigate. Press Enter to run, Esc or 'q' to return.")
-			} else {
+				footer = footerStyleCopy.Render("Use ↑/↓ or j/k to navigate. Press Enter to run, 'e' to edit, Esc or 'q' to return.")
+			} else if m.listMode == modeDelete {
 				footer = footerStyleCopy.Render("Use ↑/↓ or j/k to navigate. Press Enter to delete, Esc or 'q' to return.")
+			} else {
+				footer = footerStyleCopy.Render("Use ↑/↓ or j/k to navigate. Press Enter or 'e' to edit, Esc or 'q' to return.")
 			}
 
 		case stateAddSaveLocation:
@@ -644,6 +860,42 @@ func (m model) View() string {
 				m.textInput.View(),
 			)
 			footer = footerStyleCopy.Render("Enter to save. Esc to go back.")
+
+		case stateEditDirectoryInput:
+			content = lipgloss.JoinVertical(
+				lipgloss.Left,
+				sectionHeaderStyle.Render("EDIT COMMAND: DIRECTORY PATH"),
+				"Enter directory path where this command should run (leave empty for none):",
+				m.textInput.View(),
+			)
+			footer = footerStyleCopy.Render("Enter to confirm. Esc to cancel.")
+
+		case stateEditCommandInput:
+			content = lipgloss.JoinVertical(
+				lipgloss.Left,
+				sectionHeaderStyle.Render("EDIT COMMAND: ENTER COMMAND"),
+				"Edit the command to execute:",
+				m.textInput.View(),
+			)
+			footer = footerStyleCopy.Render("Enter to confirm. Esc to go back.")
+
+		case stateEditTitleInput:
+			content = lipgloss.JoinVertical(
+				lipgloss.Left,
+				sectionHeaderStyle.Render("EDIT COMMAND: ENTER ALIAS"),
+				"Edit alias for this command (no spaces allowed):",
+				m.textInput.View(),
+			)
+			footer = footerStyleCopy.Render("Enter to confirm. Esc to go back.")
+
+		case stateEditDescInput:
+			content = lipgloss.JoinVertical(
+				lipgloss.Left,
+				sectionHeaderStyle.Render("EDIT COMMAND: ENTER DESCRIPTION"),
+				"Edit description of what this command does:",
+				m.textInput.View(),
+			)
+			footer = footerStyleCopy.Render("Enter to save. Esc to go back.")
 		}
 	}
 
@@ -688,6 +940,14 @@ func main() {
 	case "-l", "--list":
 		listCommands()
 		return
+	case "-e", "--edit":
+		if len(args) < 2 {
+			fmt.Println("Error: please specify the command alias to edit.")
+			fmt.Println("Usage: just -e <alias>")
+			os.Exit(1)
+		}
+		editCommand(args[1])
+		return
 	case "-d", "--delete":
 		if len(args) < 2 {
 			fmt.Println("Error: please specify the command alias to delete.")
@@ -695,6 +955,17 @@ func main() {
 			os.Exit(1)
 		}
 		deleteCommand(args[1])
+		return
+	case "__complete":
+		completeAliases()
+		return
+	case "--completion", "completion":
+		if len(args) < 2 {
+			fmt.Println("Error: please specify the target shell (zsh, bash, fish).")
+			fmt.Println("Usage: just --completion <shell>")
+			os.Exit(1)
+		}
+		printCompletion(args[1])
 		return
 	}
 
@@ -724,7 +995,7 @@ func renderUsageRow(cmd, arg string, availWidth int) string {
 
 func renderOptionRow(opt, desc string, availWidth int) string {
 	optStr := optKeyStyle.Render(opt)
-	descWidth := availWidth - 19
+	descWidth := availWidth - 25
 	if descWidth < 10 {
 		descWidth = 10
 	}
@@ -748,7 +1019,9 @@ func getHelpContent(w int) string {
 		renderUsageRow("just", "<command> [args...]", availWidth),
 		renderUsageRow("just", "[options]", availWidth),
 		renderUsageRow("just", "-l", availWidth),
+		renderUsageRow("just", "-e <alias>", availWidth),
 		renderUsageRow("just", "-d <alias>", availWidth),
+		renderUsageRow("just", "--completion <shell>", availWidth),
 	}, "\n")
 
 	// Options section
@@ -757,7 +1030,9 @@ func getHelpContent(w int) string {
 		renderOptionRow("-h, --help", "Show this help menu", availWidth),
 		renderOptionRow("-v, --version", "Show version information", availWidth),
 		renderOptionRow("-l, --list", "List all registered commands in a table", availWidth),
+		renderOptionRow("-e, --edit", "Edit a command by alias", availWidth),
 		renderOptionRow("-d, --delete", "Delete a command by alias", availWidth),
+		renderOptionRow("--completion <shell>", "Generate shell completion script (zsh, bash, fish)", availWidth),
 	}, "\n")
 
 	// App flow explanation
@@ -1025,6 +1300,51 @@ func listCommands() {
 	fmt.Println(tableStr)
 }
 
+func editCommand(title string) {
+	globalPath, err := getGlobalConfigPath()
+	if err != nil {
+		fmt.Printf("Error getting config path: %v\n", err)
+		os.Exit(1)
+	}
+
+	cfg, err := loadConfig(globalPath)
+	if err != nil {
+		fmt.Printf("Error loading config: %v\n", err)
+		os.Exit(1)
+	}
+
+	var targetCmd *CommandInfo
+	for _, cmd := range cfg.Commands {
+		if cmd.Title == title {
+			c := cmd
+			targetCmd = &c
+			break
+		}
+	}
+
+	if targetCmd == nil {
+		fmt.Printf("Error: command '%s' not found.\n", title)
+		fmt.Println("Run 'just -l' to see all available commands.")
+		os.Exit(1)
+	}
+
+	m := initialModel()
+	m.fromCLI = true
+	m.commands = cfg.Commands
+	m, _ = m.startEditing(*targetCmd)
+
+	p := tea.NewProgram(m, tea.WithAltScreen())
+	finalModel, err := p.Run()
+	if err != nil {
+		fmt.Printf("Error running TUI: %v\n", err)
+		os.Exit(1)
+	}
+
+	if fm, ok := finalModel.(model); ok && fm.editSaved {
+		fmt.Printf("Command '%s' updated successfully.\n", fm.editTitle)
+	}
+}
+
 func deleteCommand(title string) {
 	globalPath, err := getGlobalConfigPath()
 	if err != nil {
@@ -1133,4 +1453,157 @@ func executeCommand(title string, extraArgs []string) {
 		os.Exit(1)
 	}
 	os.Exit(0)
+}
+
+const zshCompletion = `#compdef just
+
+_just_completion() {
+    local curcontext="$curcontext" state line
+    typeset -A opt_args
+
+    local -a options
+    options=(
+        '-h:Show this help menu'
+        '--help:Show this help menu'
+        '-v:Show version information'
+        '--version:Show version information'
+        '-l:List all registered commands in a table'
+        '--list:List all registered commands in a table'
+        '-e:Edit a command by alias'
+        '--edit:Edit a command by alias'
+        '-d:Delete a command by alias'
+        '--delete:Delete a command by alias'
+        '--completion:Generate shell completion script'
+    )
+
+    if (( CURRENT == 2 )); then
+        local -a subcommands
+        while IFS=$'\t' read -r alias desc; do
+            if [[ -n "$alias" ]]; then
+                local safe_alias="${alias//:/\\:}"
+                local safe_desc="${desc//:/\\:}"
+                if [[ -n "$safe_desc" ]]; then
+                    subcommands+=("${safe_alias}:${safe_desc}")
+                else
+                    subcommands+=("${safe_alias}")
+                fi
+            fi
+        done < <(just __complete 2>/dev/null)
+
+        _describe -t commands 'command' subcommands
+        _describe -t options 'option' options
+    elif (( CURRENT == 3 )); then
+        local prev="${words[2]}"
+        if [[ "$prev" == "-e" || "$prev" == "--edit" || "$prev" == "-d" || "$prev" == "--delete" ]]; then
+            local -a aliases
+            while IFS=$'\t' read -r alias desc; do
+                if [[ -n "$alias" ]]; then
+                    local safe_alias="${alias//:/\\:}"
+                    local safe_desc="${desc//:/\\:}"
+                    if [[ -n "$safe_desc" ]]; then
+                        aliases+=("${safe_alias}:${safe_desc}")
+                    else
+                        aliases+=("${safe_alias}")
+                    fi
+                fi
+            done < <(just __complete 2>/dev/null)
+            _describe -t commands 'alias' aliases
+        elif [[ "$prev" == "--completion" || "$prev" == "completion" ]]; then
+            local -a shells
+            shells=('zsh:Zsh completion' 'bash:Bash completion' 'fish:Fish completion')
+            _describe -t shells 'shell' shells
+        fi
+    fi
+}
+
+if ! type compdef >/dev/null 2>&1; then
+    autoload -Uz compinit && compinit -C
+fi
+compdef _just_completion just 2>/dev/null || true
+`
+
+const bashCompletion = `_just_completion() {
+    local cur prev words cword
+    if declare -F _init_completion >/dev/null 2>&1; then
+        _init_completion || return
+    else
+        cur="${COMP_WORDS[COMP_CWORD]}"
+        prev="${COMP_WORDS[COMP_CWORD-1]}"
+        cword=$COMP_CWORD
+    fi
+
+    local options="-h --help -v --version -l --list -e --edit -d --delete --completion"
+
+    if [[ $cword -eq 1 ]]; then
+        local aliases=$(just __complete 2>/dev/null | cut -f1)
+        COMPREPLY=( $(compgen -W "${options} ${aliases}" -- "$cur") )
+        return 0
+    elif [[ $cword -eq 2 ]]; then
+        if [[ "$prev" == "-e" || "$prev" == "--edit" || "$prev" == "-d" || "$prev" == "--delete" ]]; then
+            local aliases=$(just __complete 2>/dev/null | cut -f1)
+            COMPREPLY=( $(compgen -W "${aliases}" -- "$cur") )
+            return 0
+        elif [[ "$prev" == "--completion" || "$prev" == "completion" ]]; then
+            COMPREPLY=( $(compgen -W "zsh bash fish" -- "$cur") )
+            return 0
+        fi
+    fi
+}
+
+complete -F _just_completion just 2>/dev/null || true
+`
+
+const fishCompletion = `# Disable file completions for just
+complete -c just -f
+
+# Options
+complete -c just -s h -l help -d 'Show this help menu'
+complete -c just -s v -l version -d 'Show version information'
+complete -c just -s l -l list -d 'List all registered commands in a table'
+complete -c just -s e -l edit -d 'Edit a command by alias' -r -a '(just __complete 2>/dev/null | cut -f1)'
+complete -c just -s d -l delete -d 'Delete a command by alias' -r -a '(just __complete 2>/dev/null | cut -f1)'
+complete -c just -l completion -d 'Generate shell completion script' -r -a 'zsh bash fish'
+
+# Subcommands / aliases
+complete -c just -n '__fish_use_subcommand' -a '(just __complete 2>/dev/null)'
+`
+
+func formatAliasesCompletion(cfg Config) string {
+	var sb strings.Builder
+	for _, cmd := range cfg.Commands {
+		desc := cmd.Description
+		if desc == "" {
+			desc = cmd.Command
+		}
+		desc = strings.ReplaceAll(desc, "\t", " ")
+		desc = strings.ReplaceAll(desc, "\n", " ")
+		sb.WriteString(fmt.Sprintf("%s\t%s\n", cmd.Title, desc))
+	}
+	return sb.String()
+}
+
+func completeAliases() {
+	globalPath, err := getGlobalConfigPath()
+	if err != nil {
+		return
+	}
+	cfg, err := loadConfig(globalPath)
+	if err != nil {
+		return
+	}
+	fmt.Print(formatAliasesCompletion(cfg))
+}
+
+func printCompletion(shell string) {
+	switch strings.ToLower(shell) {
+	case "zsh":
+		fmt.Print(zshCompletion)
+	case "bash":
+		fmt.Print(bashCompletion)
+	case "fish":
+		fmt.Print(fishCompletion)
+	default:
+		fmt.Printf("Unsupported shell '%s'. Supported shells are: zsh, bash, fish\n", shell)
+		os.Exit(1)
+	}
 }

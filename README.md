@@ -50,7 +50,7 @@ sudo mv just /usr/local/bin/
 
 1. Run **`just`** from your shell to open the interactive panel.
 2. Select **Add Command** to name your command, set its execution directory, enter the shell command itself, add a description, and assign an **Alias**.
-3. View or delete registered commands via the **List Commands** or **Delete Command** menus in the TUI, or directly from the CLI.
+3. View, edit, or delete registered commands via the **List Commands**, **Edit Command**, or **Delete Command** menus in the TUI (or press `e` to edit directly from the list view).
 4. Execute any command from anywhere using its alias:
    ```bash
    just <alias> [extra args...]
@@ -65,13 +65,47 @@ USAGE
   just <alias> [args...]    Run a registered command by its alias
   just [options]            Open the interactive TUI management panel
   just -l                   List all registered commands in a table
+  just -e <alias>           Edit a registered command by its alias
   just -d <alias>           Delete a registered command by its alias
+  just --completion <shell> Generate shell completion script
 
 OPTIONS
   -h, --help                Show the CLI help menu
   -v, --version             Show version information
   -l, --list                List all registered commands in a table
+  -e, --edit                Edit a command by alias
   -d, --delete              Delete a command by alias
+  --completion <shell>      Generate shell completion script (zsh, bash, fish)
+```
+
+---
+
+## Shell Autocompletion
+
+`just` supports dynamic tab completion for registered command aliases, descriptions, and CLI flags.
+
+### Zsh (macOS / Linux)
+
+Add to your `~/.zshrc`:
+
+```zsh
+eval "$(just --completion zsh)"
+```
+
+### Bash
+
+Add to your `~/.bashrc`:
+
+```bash
+eval "$(just --completion bash)"
+```
+
+### Fish
+
+Add to your `~/.config/fish/config.fish`:
+
+```fish
+just --completion fish | source
 ```
 
 ---
