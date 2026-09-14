@@ -268,11 +268,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case "List Commands", "Delete Command", "Edit Command":
 					m.state = stateList
 					m.listCursor = 0
-					if selected == "List Commands" {
+					switch selected {
+					case "List Commands":
 						m.listMode = modeList
-					} else if selected == "Delete Command" {
+					case "Delete Command":
 						m.listMode = modeDelete
-					} else {
+					default:
 						m.listMode = modeEdit
 					}
 
@@ -399,7 +400,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.saveLocCursor++
 				}
 			case "enter":
-				if m.saveLocCursor == 0 {
+				switch m.saveLocCursor {
+				case 0:
 					m.selectedLocType = "current"
 					pwd, err := os.Getwd()
 					if err != nil {
@@ -413,7 +415,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.textInput.Prompt = lipgloss.NewStyle().Foreground(cyan).Bold(true).Render("Command ❯ ")
 					m.textInput.Focus()
 					return m, textinput.Blink
-				} else if m.saveLocCursor == 1 {
+				case 1:
 					m.selectedLocType = "manual"
 					m.state = stateAddPathInput
 					m.textInput.SetValue("")
@@ -421,7 +423,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.textInput.Prompt = lipgloss.NewStyle().Foreground(cyan).Bold(true).Render("Directory Path ❯ ")
 					m.textInput.Focus()
 					return m, textinput.Blink
-				} else {
+				default:
 					m.selectedLocType = "none"
 					m.savePath = ""
 					m.state = stateAddCommandInput
@@ -788,11 +790,12 @@ func (m model) View() string {
 				content = lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Bold(true).Render(fmt.Sprintf("Error loading table: %v", err))
 			} else {
 				var header string
-				if m.listMode == modeList {
+				switch m.listMode {
+				case modeList:
 					header = sectionHeaderStyle.Render("REGISTERED COMMANDS (Select command to run):")
-				} else if m.listMode == modeDelete {
+				case modeDelete:
 					header = sectionHeaderStyle.Render("DELETE COMMAND (Select command to delete):")
-				} else {
+				default:
 					header = sectionHeaderStyle.Render("EDIT COMMAND (Select command to edit):")
 				}
 				content = lipgloss.JoinVertical(
@@ -801,11 +804,12 @@ func (m model) View() string {
 					tableStr,
 				)
 			}
-			if m.listMode == modeList {
+			switch m.listMode {
+			case modeList:
 				footer = footerStyleCopy.Render("Use ↑/↓ or j/k to navigate. Press Enter to run, 'e' to edit, Esc or 'q' to return.")
-			} else if m.listMode == modeDelete {
+			case modeDelete:
 				footer = footerStyleCopy.Render("Use ↑/↓ or j/k to navigate. Press Enter to delete, Esc or 'q' to return.")
-			} else {
+			default:
 				footer = footerStyleCopy.Render("Use ↑/↓ or j/k to navigate. Press Enter or 'e' to edit, Esc or 'q' to return.")
 			}
 
