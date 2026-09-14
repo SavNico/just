@@ -15,7 +15,7 @@ import (
 	"golang.org/x/term"
 )
 
-const version = "0.1.5"
+const version = "0.1.6"
 
 type CommandInfo struct {
 	Title       string `json:"title"`
@@ -1611,60 +1611,68 @@ func printCompletion(shell string) {
 	}
 }
 
-func installCompletion() {
-	shell := os.Getenv("SHELL")
-	home, err := os.UserHomeDir()
+func appendIfNotPresent(filePath, content, header string) bool {
+	data, err := os.ReadFile(filePath)
+	if err == nil && strings.Contains(string(data), "just --completion") {
+		return false
+	}
+	f, err := os.OpenFile(filePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
-		fmt.Printf("Error getting home directory: %v\n", err)
-		os.Exit(1)
-	}
-
-	var rcFile string
-	var shellType string
-	var lineToAppend string
-
-	if strings.Contains(shell, "zsh") {
-		shellType = "zsh"
-		rcFile = filepath.Join(home, ".zshrc")
-		lineToAppend = `eval "$(just --completion zsh)"`
-	} else if strings.Contains(shell, "bash") {
-		shellType = "bash"
-		rcFile = filepath.Join(home, ".bashrc")
-		lineToAppend = `eval "$(just --completion bash)"`
-	} else if strings.Contains(shell, "fish") {
-		shellType = "fish"
-		rcFile = filepath.Join(home, ".config", "fish", "config.fish")
-		lineToAppend = `just --completion fish | source`
-	} else {
-		fmt.Println("Could not detect supported shell ($SHELL). Supported shells: zsh, bash, fish")
-		os.Exit(1)
-	}
-
-	data, _ := os.ReadFile(rcFile)
-	if strings.Contains(string(data), "just --completion") {
-		fmt.Printf("Autocompletion is already configured in %s\n", rcFile)
-		fmt.Printf("To activate it in your current terminal session, run:\n\n  source %s\n\n", rcFile)
-		return
-	}
-
-	f, err := os.OpenFile(rcFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		fmt.Printf("Error opening %s: %v\n", rcFile, err)
-		os.Exit(1)
+		return false
 	}
 	defer f.Close()
 
 	if len(data) > 0 && !strings.HasSuffix(string(data), "\n") {
 		f.WriteString("\n")
 	}
-	_, err = f.WriteString("\n# just shell completion\n" + lineToAppend + "\n")
+	f.WriteString("\n" + header + "\n" + content + "\n")
+	return true
+}
+
+func installCompletion() {
+	home, err := os.UserHomeDir()
 	if err != nil {
-		fmt.Printf("Error writing to %s: %v\n", rcFile, err)
+		fmt.Printf("Error getting home directory: %v\n", err)
 		os.Exit(1)
 	}
 
-	fmt.Printf("✔ Shell autocompletion successfully installed for %s in %s!\n\n", shellType, rcFile)
-	fmt.Printf("To activate it right now in your current terminal, run:\n\n")
-	fmt.Printf("  source %s\n\n", rcFile)
-	fmt.Printf("Or simply open a new terminal tab.\n")
+	shell := os.Getenv("SHELL")
+	installedAny := false
+
+	zshRc := filepath.Join(home, ".zshrc")
+	bashRc := filepath.Join(home, ".bashrc")
+	fishConfig := filepath.Join(home, ".config", "fish", "config.fish")
+
+	// If .zshrc exists or shell is zsh
+	if _, err := os.Stat(zshRc); err == nil || strings.Contains(shell, "zsh") {
+		if appendIfNotPresent(zshRc, `eval "$(just --completion zsh)"`, "# just shell completion") {
+			fmt.Printf("✔ Shell autocompletion enabled in %s\n", zshRc)
+			installedAny = true
+		}
+	}
+
+	// If .bashrc exists or shell is bash
+	if _, err := os.Stat(bashRc); err == nil || strings.Contains(shell, "bash") {
+		if appendIfNotPresent(bashRc, `eval "$(just --completion bash)"`, "# just shell completion") {
+			fmt.Printf("✔ Shell autocompletion enabled in %s\n", bashRc)
+			installedAny = true
+		}
+	}
+
+	// If fish config directory exists or shell is fish
+	if _, err := os.Stat(filepath.Dir(fishConfig)); err == nil || strings.Contains(shell, "fish") {
+		os.MkdirAll(filepath.Dir(fishConfig), 0755)
+		if appendIfNotPresent(fishConfig, `just --completion fish | source`, "# just shell completion") {
+			fmt.Printf("✔ Shell autocompletion enabled in %s\n", fishConfig)
+			installedAny = true
+		}
+	}
+
+	if installedAny {
+		fmt.Println("\nTo activate Tab autocompletion, restart your terminal or run:")
+		fmt.Println("  source ~/.bashrc   # for Bash (Ubuntu/Linux)")
+		fmt.Println("  source ~/.zshrc    # for Zsh (macOS)")
+	} else {
+		fmt.Println("Autocompletion is already configured in your shell rc files.")
+	}
 }

@@ -75,3 +75,7 @@ rm -rf "${TMP_DIR}"
 
 echo "Success! 'just' has been installed to ${INSTALL_DIR}/just"
 "${INSTALL_DIR}/just" -v
+
+echo ""
+echo "Configuring shell autocompletion..."
+"${INSTALL_DIR}/just" --install-completion 2>/dev/null || true
