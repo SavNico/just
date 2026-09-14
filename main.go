@@ -15,7 +15,7 @@ import (
 	"golang.org/x/term"
 )
 
-const version = "0.1.2"
+const version = "0.1.4"
 
 type CommandInfo struct {
 	Title       string `json:"title"`
@@ -967,6 +967,9 @@ func main() {
 		}
 		printCompletion(args[1])
 		return
+	case "--install-completion", "install-completion":
+		installCompletion()
+		return
 	}
 
 	// Execute command by title
@@ -1606,4 +1609,62 @@ func printCompletion(shell string) {
 		fmt.Printf("Unsupported shell '%s'. Supported shells are: zsh, bash, fish\n", shell)
 		os.Exit(1)
 	}
+}
+
+func installCompletion() {
+	shell := os.Getenv("SHELL")
+	home, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Printf("Error getting home directory: %v\n", err)
+		os.Exit(1)
+	}
+
+	var rcFile string
+	var shellType string
+	var lineToAppend string
+
+	if strings.Contains(shell, "zsh") {
+		shellType = "zsh"
+		rcFile = filepath.Join(home, ".zshrc")
+		lineToAppend = `eval "$(just --completion zsh)"`
+	} else if strings.Contains(shell, "bash") {
+		shellType = "bash"
+		rcFile = filepath.Join(home, ".bashrc")
+		lineToAppend = `eval "$(just --completion bash)"`
+	} else if strings.Contains(shell, "fish") {
+		shellType = "fish"
+		rcFile = filepath.Join(home, ".config", "fish", "config.fish")
+		lineToAppend = `just --completion fish | source`
+	} else {
+		fmt.Println("Could not detect supported shell ($SHELL). Supported shells: zsh, bash, fish")
+		os.Exit(1)
+	}
+
+	data, _ := os.ReadFile(rcFile)
+	if strings.Contains(string(data), "just --completion") {
+		fmt.Printf("Autocompletion is already configured in %s\n", rcFile)
+		fmt.Printf("To activate it in your current terminal session, run:\n\n  source %s\n\n", rcFile)
+		return
+	}
+
+	f, err := os.OpenFile(rcFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		fmt.Printf("Error opening %s: %v\n", rcFile, err)
+		os.Exit(1)
+	}
+	defer f.Close()
+
+	if len(data) > 0 && !strings.HasSuffix(string(data), "\n") {
+		f.WriteString("\n")
+	}
+	_, err = f.WriteString("\n# just shell completion\n" + lineToAppend + "\n")
+	if err != nil {
+		fmt.Printf("Error writing to %s: %v\n", rcFile, err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("✔ Shell autocompletion successfully installed for %s in %s!\n\n", shellType, rcFile)
+	fmt.Printf("To activate it right now in your current terminal, run:\n\n")
+	fmt.Printf("  source %s\n\n", rcFile)
+	fmt.Printf("Or simply open a new terminal tab.\n")
 }
