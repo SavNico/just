@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 
@@ -40,7 +41,13 @@ func expandTilde(path string) string {
 	if strings.HasPrefix(path, "~") {
 		home, err := os.UserHomeDir()
 		if err == nil {
-			return filepath.Join(home, path[1:])
+			rest := strings.TrimPrefix(path, "~")
+			rest = strings.TrimPrefix(rest, "/")
+			rest = strings.TrimPrefix(rest, "\\")
+			if rest == "" {
+				return home
+			}
+			return filepath.Join(home, rest)
 		}
 	}
 	return path
@@ -965,7 +972,7 @@ func main() {
 		return
 	case "--completion", "completion":
 		if len(args) < 2 {
-			fmt.Println("Error: please specify the target shell (zsh, bash, fish).")
+			fmt.Println("Error: please specify the target shell (powershell, zsh, bash, fish).")
 			fmt.Println("Usage: just --completion <shell>")
 			os.Exit(1)
 		}
@@ -1039,7 +1046,7 @@ func getHelpContent(w int) string {
 		renderOptionRow("-l, --list", "List all registered commands in a table", availWidth),
 		renderOptionRow("-e, --edit", "Edit a command by alias", availWidth),
 		renderOptionRow("-d, --delete", "Delete a command by alias", availWidth),
-		renderOptionRow("--completion <shell>", "Generate shell completion script (zsh, bash, fish)", availWidth),
+		renderOptionRow("--completion <shell>", "Generate shell completion script (powershell, zsh, bash, fish)", availWidth),
 	}, "\n")
 
 	// App flow explanation
@@ -1390,6 +1397,30 @@ func deleteCommand(title string) {
 	fmt.Printf("Command '%s' deleted successfully.\n", title)
 }
 
+func buildRunFileContent(dir, fullCmd, goos string) string {
+	if dir != "" {
+		if goos == "windows" {
+			escapedDir := strings.ReplaceAll(dir, `'`, `''`)
+			return fmt.Sprintf("& { Set-Location '%s'; %s }", escapedDir, fullCmd)
+		}
+		escapedDir := strings.ReplaceAll(dir, `'`, `'\''`)
+		return fmt.Sprintf("(cd '%s' && %s)", escapedDir, fullCmd)
+	}
+	return fullCmd
+}
+
+func buildShellCommand(fullCmd string) (string, []string) {
+	if runtime.GOOS == "windows" {
+		shell := "powershell"
+		if p, err := exec.LookPath("pwsh"); err == nil && p != "" {
+			shell = "pwsh"
+		}
+		psCmd := fmt.Sprintf("& { %s }; if ($LASTEXITCODE -ne $null -and $LASTEXITCODE -ne 0) { exit $LASTEXITCODE }", fullCmd)
+		return shell, []string{"-NoLogo", "-ExecutionPolicy", "Bypass", "-Command", psCmd}
+	}
+	return "sh", []string{"-c", fullCmd}
+}
+
 func executeCommand(title string, extraArgs []string) {
 	globalPath, err := getGlobalConfigPath()
 	if err != nil {
@@ -1425,13 +1456,7 @@ func executeCommand(title string, extraArgs []string) {
 	// Check if we should delegate execution to the parent shell via a temp file
 	runFile := os.Getenv("JUST_RUN_FILE")
 	if runFile != "" {
-		var exportCmd string
-		if targetCmd.Directory != "" {
-			escapedDir := strings.ReplaceAll(targetCmd.Directory, `'`, `'\''`)
-			exportCmd = fmt.Sprintf("(cd '%s' && %s)", escapedDir, fullCmd)
-		} else {
-			exportCmd = fullCmd
-		}
+		exportCmd := buildRunFileContent(targetCmd.Directory, fullCmd, runtime.GOOS)
 		err := os.WriteFile(runFile, []byte(exportCmd), 0600)
 		if err != nil {
 			fmt.Printf("Error writing command to run file: %v\n", err)
@@ -1441,7 +1466,8 @@ func executeCommand(title string, extraArgs []string) {
 	}
 
 	// Execute via shell
-	c := exec.Command("sh", "-c", fullCmd)
+	shProg, shArgs := buildShellCommand(fullCmd)
+	c := exec.Command(shProg, shArgs...)
 	c.Stdin = os.Stdin
 	c.Stdout = os.Stdout
 	c.Stderr = os.Stderr
@@ -1517,7 +1543,7 @@ _just_completion() {
             _describe -t commands 'alias' aliases
         elif [[ "$prev" == "--completion" || "$prev" == "completion" ]]; then
             local -a shells
-            shells=('zsh:Zsh completion' 'bash:Bash completion' 'fish:Fish completion')
+            shells=('powershell:PowerShell completion' 'zsh:Zsh completion' 'bash:Bash completion' 'fish:Fish completion')
             _describe -t shells 'shell' shells
         fi
     fi
@@ -1551,7 +1577,7 @@ const bashCompletion = `_just_completion() {
             COMPREPLY=( $(compgen -W "${aliases}" -- "$cur") )
             return 0
         elif [[ "$prev" == "--completion" || "$prev" == "completion" ]]; then
-            COMPREPLY=( $(compgen -W "zsh bash fish" -- "$cur") )
+            COMPREPLY=( $(compgen -W "powershell zsh bash fish" -- "$cur") )
             return 0
         fi
     fi
@@ -1569,10 +1595,85 @@ complete -c just -s v -l version -d 'Show version information'
 complete -c just -s l -l list -d 'List all registered commands in a table'
 complete -c just -s e -l edit -d 'Edit a command by alias' -r -a '(just __complete 2>/dev/null | cut -f1)'
 complete -c just -s d -l delete -d 'Delete a command by alias' -r -a '(just __complete 2>/dev/null | cut -f1)'
-complete -c just -l completion -d 'Generate shell completion script' -r -a 'zsh bash fish'
+complete -c just -l completion -d 'Generate shell completion script' -r -a 'powershell zsh bash fish'
 
 # Subcommands / aliases
 complete -c just -n '__fish_use_subcommand' -a '(just __complete 2>/dev/null)'
+`
+
+const powershellCompletion = `Register-ArgumentCompleter -Native -CommandName @('just', 'just.exe') -ScriptBlock {
+    param($wordToComplete, $commandAst, $cursorPosition)
+
+    $options = @(
+        @{ Text = '-h'; Desc = 'Show this help menu' }
+        @{ Text = '--help'; Desc = 'Show this help menu' }
+        @{ Text = '-v'; Desc = 'Show version information' }
+        @{ Text = '--version'; Desc = 'Show version information' }
+        @{ Text = '-l'; Desc = 'List all registered commands in a table' }
+        @{ Text = '--list'; Desc = 'List all registered commands in a table' }
+        @{ Text = '-e'; Desc = 'Edit a command by alias' }
+        @{ Text = '--edit'; Desc = 'Edit a command by alias' }
+        @{ Text = '-d'; Desc = 'Delete a command by alias' }
+        @{ Text = '--delete'; Desc = 'Delete a command by alias' }
+        @{ Text = '--completion'; Desc = 'Generate shell completion script' }
+        @{ Text = '--install-completion'; Desc = 'Install shell completion into shell config' }
+    )
+
+    $elements = @($commandAst.CommandElements)
+    $prev = ''
+    if ($elements.Count -gt 1) {
+        if ($wordToComplete -ne '') {
+            if ($elements.Count -ge 2) {
+                $prev = $elements[$elements.Count - 2].Extent.Text
+            }
+        } else {
+            $prev = $elements[$elements.Count - 1].Extent.Text
+        }
+    }
+
+    if ($prev -in @('-e', '--edit', '-d', '--delete')) {
+        $rawAliases = just __complete 2>$null
+        if ($rawAliases) {
+            foreach ($line in $rawAliases) {
+                $parts = $line -split "` + "`" + `t", 2
+                $aliasName = $parts[0]
+                $desc = if ($parts.Count -gt 1) { $parts[1] } else { $aliasName }
+                if ($aliasName -like "$wordToComplete*") {
+                    [System.Management.Automation.CompletionResult]::new($aliasName, $aliasName, [System.Management.Automation.CompletionResultType]::ParameterValue, $desc)
+                }
+            }
+        }
+        return
+    }
+
+    if ($prev -in @('--completion', 'completion')) {
+        $shells = @('powershell', 'pwsh', 'zsh', 'bash', 'fish')
+        foreach ($sh in $shells) {
+            if ($sh -like "$wordToComplete*") {
+                [System.Management.Automation.CompletionResult]::new($sh, $sh, [System.Management.Automation.CompletionResultType]::ParameterValue, "$sh completion")
+            }
+        }
+        return
+    }
+
+    foreach ($opt in $options) {
+        if ($opt.Text -like "$wordToComplete*") {
+            [System.Management.Automation.CompletionResult]::new($opt.Text, $opt.Text, [System.Management.Automation.CompletionResultType]::ParameterName, $opt.Desc)
+        }
+    }
+
+    $rawAliases = just __complete 2>$null
+    if ($rawAliases) {
+        foreach ($line in $rawAliases) {
+            $parts = $line -split "` + "`" + `t", 2
+            $aliasName = $parts[0]
+            $desc = if ($parts.Count -gt 1) { $parts[1] } else { $aliasName }
+            if ($aliasName -like "$wordToComplete*") {
+                [System.Management.Automation.CompletionResult]::new($aliasName, $aliasName, [System.Management.Automation.CompletionResultType]::ParameterValue, $desc)
+            }
+        }
+    }
+}
 `
 
 func formatAliasesCompletion(cfg Config) string {
@@ -1609,8 +1710,10 @@ func printCompletion(shell string) {
 		fmt.Print(bashCompletion)
 	case "fish":
 		fmt.Print(fishCompletion)
+	case "powershell", "pwsh", "ps1":
+		fmt.Print(powershellCompletion)
 	default:
-		fmt.Printf("Unsupported shell '%s'. Supported shells are: zsh, bash, fish\n", shell)
+		fmt.Printf("Unsupported shell '%s'. Supported shells are: powershell, zsh, bash, fish\n", shell)
 		os.Exit(1)
 	}
 }
@@ -1618,6 +1721,10 @@ func printCompletion(shell string) {
 func appendIfNotPresent(filePath, content, header string) bool {
 	data, err := os.ReadFile(filePath)
 	if err == nil && strings.Contains(string(data), "just --completion") {
+		return false
+	}
+	dir := filepath.Dir(filePath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
 		return false
 	}
 	f, err := os.OpenFile(filePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
@@ -1672,10 +1779,55 @@ func installCompletion() {
 		}
 	}
 
+	// PowerShell profiles (Windows and PowerShell Core on Unix)
+	psScript := `if (Get-Command just -ErrorAction SilentlyContinue) { just --completion powershell | Out-String | Invoke-Expression }`
+	var psProfiles []string
+	if runtime.GOOS == "windows" {
+		psProfiles = append(psProfiles,
+			filepath.Join(home, "Documents", "PowerShell", "Microsoft.PowerShell_profile.ps1"),
+			filepath.Join(home, "Documents", "WindowsPowerShell", "Microsoft.PowerShell_profile.ps1"),
+		)
+	} else {
+		psProfiles = append(psProfiles,
+			filepath.Join(home, ".config", "powershell", "Microsoft.PowerShell_profile.ps1"),
+		)
+	}
+
+	for _, psProfile := range psProfiles {
+		parentDir := filepath.Dir(psProfile)
+		shouldInstall := false
+		if _, err := os.Stat(psProfile); err == nil {
+			shouldInstall = true
+		} else if _, err := os.Stat(parentDir); err == nil {
+			shouldInstall = true
+		} else if runtime.GOOS == "windows" {
+			if strings.Contains(psProfile, "WindowsPowerShell") {
+				if _, err := exec.LookPath("powershell"); err == nil {
+					shouldInstall = true
+				}
+			} else if strings.Contains(psProfile, "PowerShell") {
+				if _, err := exec.LookPath("pwsh"); err == nil {
+					shouldInstall = true
+				}
+			}
+		}
+
+		if shouldInstall {
+			if appendIfNotPresent(psProfile, psScript, "# just shell completion") {
+				fmt.Printf("✔ Shell autocompletion enabled in %s\n", psProfile)
+				installedAny = true
+			}
+		}
+	}
+
 	if installedAny {
 		fmt.Println("\nTo activate Tab autocompletion, restart your terminal or run:")
-		fmt.Println("  source ~/.bashrc   # for Bash (Ubuntu/Linux)")
-		fmt.Println("  source ~/.zshrc    # for Zsh (macOS)")
+		if runtime.GOOS == "windows" {
+			fmt.Println("  . $PROFILE         # for PowerShell")
+		} else {
+			fmt.Println("  source ~/.bashrc   # for Bash (Ubuntu/Linux)")
+			fmt.Println("  source ~/.zshrc    # for Zsh (macOS)")
+		}
 	} else {
 		fmt.Println("Autocompletion is already configured in your shell rc files.")
 	}

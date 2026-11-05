@@ -18,7 +18,7 @@ Built on top of Charm's **Bubble Tea** and **Lipgloss**, `just` offers a modern,
 
 ## Installation
 
-### Shell Script (via curl)
+### macOS / Linux (via curl)
 
 You can download and install the latest compiled binary automatically using:
 
@@ -27,6 +27,16 @@ curl -sSL https://raw.githubusercontent.com/SavNico/just/main/install.sh | sh
 ```
 
 *Note: The script detects your OS (macOS/Linux) and CPU architecture, downloads the tarball, extracts it, and installs it to `/usr/local/bin/just`.*
+
+### Windows (PowerShell)
+
+You can install the latest release automatically on Windows using PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/SavNico/just/main/install.ps1 | iex
+```
+
+*Note: The script detects your architecture (Amd64/Arm64), downloads the zip archive, extracts `just.exe`, places it in `%LOCALAPPDATA%\Programs\just`, adds it to your user `PATH`, and sets up PowerShell tab completion.*
 
 ### Building from Source
 
@@ -39,6 +49,7 @@ cd just
 
 # Compile the binary
 go build -o just
+# (On Windows: go build -o just.exe)
 
 # Move to your path (Linux/macOS)
 sudo mv just /usr/local/bin/
@@ -75,7 +86,7 @@ OPTIONS
   -l, --list                List all registered commands in a table
   -e, --edit                Edit a command by alias
   -d, --delete              Delete a command by alias
-  --completion <shell>      Generate shell completion script (zsh, bash, fish)
+  --completion <shell>      Generate shell completion script (powershell, zsh, bash, fish)
 ```
 
 ---
@@ -83,6 +94,24 @@ OPTIONS
 ## Shell Autocompletion
 
 `just` supports dynamic tab completion for registered command aliases, descriptions, and CLI flags.
+
+You can configure autocompletion automatically by running:
+
+```bash
+just --install-completion
+```
+
+Or manually configure your favorite shell:
+
+### PowerShell (Windows / macOS / Linux)
+
+Add to your PowerShell profile (`$PROFILE`):
+
+```powershell
+if (Get-Command just -ErrorAction SilentlyContinue) {
+    just --completion powershell | Out-String | Invoke-Expression
+}
+```
 
 ### Zsh (macOS / Linux)
 

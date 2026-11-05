@@ -208,6 +208,16 @@ func TestExpandTilde(t *testing.T) {
 		t.Errorf("expected %q, got %q", expected, res)
 	}
 
+	resWindowsSlash := expandTilde(`~\Desktop`)
+	if resWindowsSlash != expected {
+		t.Errorf("expected %q, got %q", expected, resWindowsSlash)
+	}
+
+	resBareTilde := expandTilde("~")
+	if resBareTilde != home {
+		t.Errorf("expected %q, got %q", home, resBareTilde)
+	}
+
 	noTilde := "/var/log"
 	if expandTilde(noTilde) != noTilde {
 		t.Errorf("expected %q, got %q", noTilde, expandTilde(noTilde))
@@ -269,5 +279,37 @@ func TestCompletionScripts(t *testing.T) {
 	}
 	if !strings.Contains(fishCompletion, "complete -c just") {
 		t.Error("fishCompletion missing key definitions")
+	}
+	if !strings.Contains(powershellCompletion, "Register-ArgumentCompleter") || !strings.Contains(powershellCompletion, "CompletionResult") {
+		t.Error("powershellCompletion missing key definitions")
+	}
+}
+
+func TestBuildRunFileContent(t *testing.T) {
+	// Unix delegation
+	unixOut := buildRunFileContent("/var/log", "echo hi", "linux")
+	expectedUnix := "(cd '/var/log' && echo hi)"
+	if unixOut != expectedUnix {
+		t.Errorf("expected %q, got %q", expectedUnix, unixOut)
+	}
+
+	// Windows delegation
+	winOut := buildRunFileContent(`C:\Users\User\Projects`, "echo hi", "windows")
+	expectedWin := `& { Set-Location 'C:\Users\User\Projects'; echo hi }`
+	if winOut != expectedWin {
+		t.Errorf("expected %q, got %q", expectedWin, winOut)
+	}
+
+	// Windows directory with quotes
+	winOutQuotes := buildRunFileContent(`C:\User's\Projects`, "echo hi", "windows")
+	expectedWinQuotes := `& { Set-Location 'C:\User''s\Projects'; echo hi }`
+	if winOutQuotes != expectedWinQuotes {
+		t.Errorf("expected %q, got %q", expectedWinQuotes, winOutQuotes)
+	}
+
+	// No directory
+	emptyDirOut := buildRunFileContent("", "echo hi", "windows")
+	if emptyDirOut != "echo hi" {
+		t.Errorf("expected %q, got %q", "echo hi", emptyDirOut)
 	}
 }
