@@ -16,7 +16,7 @@ import (
 	"golang.org/x/term"
 )
 
-const version = "0.1.6"
+const version = "0.1.7"
 
 type CommandInfo struct {
 	Title       string `json:"title"`
